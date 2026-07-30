@@ -50,6 +50,9 @@ relevant tools, use bounded tool-call budgets, and cache repeated tool calls. Th
 does not run the search and dataset specialists together because that would consume
 more free-model quota and increase latency.
 
+While an analysis is running, the bot refreshes Telegram's non-message `typing` status
+every four seconds. It stops the status before sending the single required JSON reply.
+
 The model produces only the inner `answer` value. Application code constructs the outer
 object and injects the immutable log URL, so the model cannot omit or modify it.
 

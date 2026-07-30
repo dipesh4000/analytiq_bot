@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import suppress
 
-from telegram import Update
+from telegram import Bot, Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -15,6 +18,21 @@ from app.config import Settings
 from app.service import BotService
 
 logger = logging.getLogger(__name__)
+
+
+async def _keep_typing(
+    bot: Bot,
+    chat_id: int,
+    *,
+    interval_seconds: float = 4.0,
+) -> None:
+    """Refresh Telegram's short-lived typing status until cancelled."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        except Exception:
+            logger.warning("Could not refresh Telegram typing status", exc_info=True)
 
 
 def build_telegram_application(
@@ -44,17 +62,28 @@ def build_telegram_application(
             await update.message.reply_text("Conversation reset.")
 
     async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        del context
         message = update.effective_message
         chat = update.effective_chat
         if not message or not chat or not message.text:
             return
-        result = await service.handle_message(
-            chat_id=chat.id,
-            user_id=update.effective_user.id if update.effective_user else None,
-            text=message.text,
-            update_id=update.update_id,
-        )
+
+        with suppress(Exception):
+            await context.bot.send_chat_action(
+                chat_id=chat.id, action=ChatAction.TYPING
+            )
+        typing_task = asyncio.create_task(_keep_typing(context.bot, chat.id))
+        try:
+            result = await service.handle_message(
+                chat_id=chat.id,
+                user_id=update.effective_user.id if update.effective_user else None,
+                text=message.text,
+                update_id=update.update_id,
+            )
+        finally:
+            typing_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await typing_task
+
         if result is not None:
             await message.reply_text(
                 result,
