@@ -1,0 +1,33 @@
+[
+  {
+    "id": "inline_max",
+    "messages": [
+      "Given CSV data state,rate\nKerala,20\nAssam,45\nGoa,18\n, which state has the highest rate? Reply with ONLY {\"answer\":{\"state\":\"<name>\"},\"log_url\":\"<public URL>\"}."
+    ],
+    "expected_answer": {
+      "state": "Assam"
+    }
+  },
+  {
+    "id": "inline_average",
+    "messages": [
+      "The values are [12, 18, 30, 40]. Return their arithmetic mean.",
+      "Answer the last request as {\"answer\":{\"mean\":<number>},\"log_url\":\"<public URL>\"}."
+    ],
+    "expected_answer": {
+      "mean": 25
+    }
+  },
+  {
+    "id": "nested_shape",
+    "messages": [
+      "For values [5, 2, 9], reply exactly as {\"answer\":{\"summary\":{\"minimum\":<number>,\"maximum\":<number>}},\"log_url\":\"<public URL>\"}."
+    ],
+    "expected_answer": {
+      "summary": {
+        "minimum": 2,
+        "maximum": 9
+      }
+    }
+  }
+]

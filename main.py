@@ -1,61 +1,38 @@
+from __future__ import annotations
+
 import logging
-import os
 
-from telegram import ForceReply, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+import uvicorn
 
-from dotenv import load_dotenv
-from app.agents import ai_chat
-
-load_dotenv()
-TELEGRAM_BOT_TOKEN = os.environ.get("BOT_API_KEY")
+from app.config import Settings
+from app.runtime import build_runtime
+from app.web import create_web_app
 
 
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-# set higher logging level for httpx to avoid all GET and POST requests being logged
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
-logger = logging.getLogger(__name__)
-
-
-# Define a few command handlers. These usually take the two arguments update and
-# context.
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
-    await update.message.reply_html(
-        rf"Hello {user.first_name}, I am an Ai Analytics bot!",
-        # reply_markup=ForceReply(selective=True),
+def configure_logging() -> None:
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
-    await update.message.reply_text("Help!")
-
-
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Echo the user message."""
-    Result = ai_chat(update.message.text)
-    await update.message.reply_text(Result)
 
 def main() -> None:
-    """Start the bot."""
-    # Create the Application and pass it your bot's token.
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    # on different commands - answer in Telegram
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-
-    # on non command i.e message - echo the message on Telegram
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-
-    # Run the bot until the user presses Ctrl-C
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    configure_logging()
+    settings = Settings.from_env()
+    if settings.bot_mode == "polling":
+        runtime = build_runtime(settings)
+        runtime.telegram.run_polling(
+            allowed_updates=["message"],
+            drop_pending_updates=False,
+        )
+        return
+    uvicorn.run(
+        create_web_app(settings),
+        host="0.0.0.0",
+        port=settings.port,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":

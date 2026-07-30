@@ -1,12 +1,41 @@
 [project]
 name = "analytiq-bot"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "A Telegram data-analysis agent with public JSONL run logs"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11,<3.14"
 dependencies = [
-    "ipykernel>=7.3.0",
-    "pydantic>=2.13.4",
-    "python-dotenv>=1.2.2",
-    "python-telegram-bot>=22.8",
+    "duckdb>=1.4.0,<2",
+    "fastapi>=0.116,<1",
+    "httpx>=0.28,<1",
+    "lxml>=5.4,<7",
+    "openai>=1.100,<3",
+    "openpyxl>=3.1,<4",
+    "pandas>=2.3,<4",
+    "pydantic>=2.11,<3",
+    "pypdf>=5.9,<7",
+    "python-dotenv>=1.1,<2",
+    "python-telegram-bot>=22.4,<23",
+    "uvicorn[standard]>=0.35,<1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<10",
+    "pytest-asyncio>=1.1,<2",
+    "ruff>=0.12,<1",
+]
+
+[tool.pytest.ini_options]
+addopts = "--basetemp=.pytest-temp"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["imply.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
