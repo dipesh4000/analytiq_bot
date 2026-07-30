@@ -1,24 +1,15 @@
-"""
-Simple Bot to reply to Telegram messages.
-
-First, a few handler functions are defined. Then, those functions are passed to
-the Application and registered at their respective places.
-Then, the bot is started and runs until we press Ctrl-C on the command line.
-Usage:
-Basic Echobot example, repeats messages.
-Press Ctrl-C on the command line or send a signal to the process to stop the
-bot.
-"""
-
 import logging
 import os
 
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
+from dotenv import load_dotenv
 
 
+load_dotenv()
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_API_KEY")
+
 
 # Enable logging
 logging.basicConfig(
@@ -36,8 +27,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
     user = update.effective_user
     await update.message.reply_html(
-        rf"Hi {user.mention_html()}!",
-        reply_markup=ForceReply(selective=True),
+        rf"Hello {user.first_name}, I am an Ai Analytics bot!",
+        # reply_markup=ForceReply(selective=True),
     )
 
 
