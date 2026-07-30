@@ -7,6 +7,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.contracts import ConversationMessage, JsonValue, validate_json_value
+from app.routing import AnalysisRoute, RoutingDecision
 from app.storage import RunLogger
 from app.tools import Toolbox
 
@@ -32,8 +33,28 @@ Rules:
 - The requested shape applies to the answer value only. The application adds log_url.
 - Finish by calling submit_answer. answer_json must be valid JSON and match the exact
   shape requested for the answer (object, array, number, string, boolean, or null).
+- Do not submit null unless the user explicitly asks for JSON null.
 - Do not put Markdown fences or explanatory prose in answer_json.
 """
+
+SPECIALIST_PROMPTS = {
+    AnalysisRoute.DATASET: (
+        "You are the dataset-analysis specialist. Work from the inline structured data. "
+        "Load it once, use SQL or calculation for the requested result, and do not search "
+        "the web."
+    ),
+    AnalysisRoute.SEARCH: (
+        "You are the web-research specialist. Search narrowly, fetch an authoritative "
+        "source, and query any extracted table. Do not repeat equivalent searches."
+    ),
+    AnalysisRoute.GENERAL: (
+        "You are the general-analysis specialist. Use the minimum tools needed. If the "
+        "question is answerable by calculation alone, do not search the web."
+    ),
+}
+
+MAX_HISTORY_MESSAGES = 8
+MAX_HISTORY_CHARACTERS = 12_000
 
 
 class AgentError(RuntimeError):
@@ -66,16 +87,41 @@ class DataAnalystAgent:
         history: list[ConversationMessage],
         toolbox: Toolbox,
         logger: RunLogger,
+        route: RoutingDecision | None = None,
     ) -> JsonValue:
-        messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        selected_route = route or RoutingDecision(
+            AnalysisRoute.GENERAL, "route not supplied"
+        )
+        specialist_prompt = SPECIALIST_PROMPTS[selected_route.route]
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": f"{SYSTEM_PROMPT}\n\n{specialist_prompt}",
+            }
+        ]
         messages.extend(
             {"role": item.role, "content": item.content}
-            for item in history
+            for item in _compact_history(history)
         )
-        tools = Toolbox.schemas()
+        tools = Toolbox.schemas(selected_route.allowed_tools)
+        latest_text = history[-1].content if history else ""
+        await logger.log(
+            "specialist_started",
+            specialist=selected_route.route.value,
+            exposed_tools=sorted(selected_route.allowed_tools),
+        )
 
-        for step in range(self.max_steps):
-            response, requested_model = await self._completion(messages, tools, logger)
+        route_step_limits = {
+            AnalysisRoute.DATASET: 4,
+            AnalysisRoute.SEARCH: 5,
+            AnalysisRoute.GENERAL: 6,
+        }
+        step_limit = min(self.max_steps, route_step_limits[selected_route.route])
+
+        for step in range(step_limit):
+            response, requested_model = await self._completion(
+                messages, tools, logger, specialist=selected_route.route.value
+            )
             choice = response.choices[0]
             message = choice.message
             actual_model = getattr(response, "model", requested_model)
@@ -105,12 +151,25 @@ class DataAnalystAgent:
                     else:
                         if name == "submit_answer":
                             answer = _parse_submitted_answer(arguments.get("answer_json"))
-                            await logger.log(
-                                "answer_submitted",
-                                evidence_sources=arguments.get("evidence_sources", []),
-                            )
-                            return answer
-                        result = await toolbox.execute(name, arguments)
+                            if answer is None and not _explicitly_requests_null(latest_text):
+                                result = {
+                                    "ok": False,
+                                    "error": (
+                                        "Null is not a valid answer for this request. "
+                                        "Provide the requested JSON shape."
+                                    ),
+                                }
+                                await logger.log("null_answer_rejected")
+                            else:
+                                await logger.log(
+                                    "answer_submitted",
+                                    evidence_sources=arguments.get(
+                                        "evidence_sources", []
+                                    ),
+                                )
+                                return answer
+                        else:
+                            result = await toolbox.execute(name, arguments)
                     messages.append(
                         {
                             "role": "tool",
@@ -137,23 +196,32 @@ class DataAnalystAgent:
                 }
             )
 
-        raise AgentError(f"Agent exceeded the {self.max_steps}-step limit")
+        raise AgentError(
+            f"{selected_route.route.value} exceeded the {step_limit}-step limit"
+        )
 
     async def _completion(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         logger: RunLogger,
+        *,
+        specialist: str,
     ) -> tuple[Any, str]:
         errors: list[str] = []
         for model in self.models:
-            await logger.log("model_request", model=model, message_count=len(messages))
+            await logger.log(
+                "model_request",
+                model=model,
+                specialist=specialist,
+                message_count=len(messages),
+            )
             try:
                 response = await self.client.chat.completions.create(
                     model=model,
                     messages=messages,  # type: ignore[arg-type]
                     tools=tools,  # type: ignore[arg-type]
-                    max_tokens=4_000,
+                    max_tokens=1_600,
                 )
                 return response, model
             except Exception as exc:
@@ -192,3 +260,28 @@ def _parse_content_candidate(content: str) -> JsonValue | None:
     elif isinstance(value, dict) and "answer_json" in value:
         return _parse_submitted_answer(value["answer_json"])
     return validate_json_value(value)
+
+
+def _compact_history(
+    history: list[ConversationMessage],
+) -> list[ConversationMessage]:
+    """Keep recent context without repeatedly sending an unbounded transcript."""
+    selected: list[ConversationMessage] = []
+    characters = 0
+    for item in reversed(history[-MAX_HISTORY_MESSAGES:]):
+        if selected and characters + len(item.content) > MAX_HISTORY_CHARACTERS:
+            continue
+        selected.append(item)
+        characters += len(item.content)
+    return list(reversed(selected))
+
+
+def _explicitly_requests_null(text: str) -> bool:
+    lowered = text.lower()
+    return bool(
+        re.search(
+            r"(?:answer|reply|return|output)[^\n]{0,40}\bnull\b|"
+            r"\bjson\s+null\b",
+            lowered,
+        )
+    )

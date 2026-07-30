@@ -14,7 +14,7 @@ import pandas as pd
 from pypdf import PdfReader
 
 MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024
-MAX_TEXT_CHARS = 30_000
+MAX_TEXT_CHARS = 12_000
 
 
 async def search_web(api_key: str, query: str, max_results: int = 5) -> list[dict[str, Any]]:

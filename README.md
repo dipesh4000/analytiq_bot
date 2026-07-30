@@ -38,6 +38,17 @@ GET /readyz
 GET /logs/<run_id>.jsonl
 ```
 
+Before the model runs, a zero-token router selects exactly one specialist:
+
+- `dataset_analyst` for structured data embedded in the message
+- `search_analyst` for public URLs, MOSPI, and other public-data questions
+- `general_analyst` only for ambiguous or mixed questions
+
+Exact greetings are answered without an LLM request. Specialists receive only their
+relevant tools, use bounded tool-call budgets, and cache repeated tool calls. The bot
+does not run the search and dataset specialists together because that would consume
+more free-model quota and increase latency.
+
 The model produces only the inner `answer` value. Application code constructs the outer
 object and injects the immutable log URL, so the model cannot omit or modify it.
 

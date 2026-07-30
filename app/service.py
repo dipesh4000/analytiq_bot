@@ -7,6 +7,7 @@ import uuid
 from app.agent import DataAnalystAgent
 from app.config import Settings
 from app.contracts import ConversationMessage, FinalReply, JsonValue
+from app.routing import AnalysisRoute, route_message
 from app.storage import RunLogger, SQLiteStore
 from app.tools import Toolbox
 
@@ -51,17 +52,34 @@ class BotService:
             history = await self.store.append_message(
                 chat_id, ConversationMessage(role="user", content=text)
             )
-            toolbox = Toolbox(self.settings.tavily_api_key, logger)
+            route = route_message(text)
+            await logger.log(
+                "route_selected",
+                route=route.route.value,
+                reason=route.reason,
+                allowed_tools=sorted(route.allowed_tools),
+            )
+            toolbox = Toolbox(
+                self.settings.tavily_api_key,
+                logger,
+                allowed_tools=route.allowed_tools,
+            )
             answer: JsonValue
-            try:
-                async with asyncio.timeout(self.settings.agent_timeout_seconds):
-                    answer = await self.agent.solve(history, toolbox, logger)
-            except Exception as exc:
-                await logger.log(
-                    "run_failed",
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-                answer = {"error": "analysis_failed"}
+            if route.route == AnalysisRoute.SMALLTALK:
+                answer = {"message": "Send a data-analysis question."}
+                await logger.log("smalltalk_handled_without_model")
+            else:
+                try:
+                    async with asyncio.timeout(self.settings.agent_timeout_seconds):
+                        answer = await self.agent.solve(
+                            history, toolbox, logger, route=route
+                        )
+                except Exception as exc:
+                    await logger.log(
+                        "run_failed",
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    answer = {"error": "analysis_failed"}
 
             reply = FinalReply(answer=answer, log_url=log_url).serialize()
             if len(reply) > TELEGRAM_TEXT_LIMIT:

@@ -9,7 +9,11 @@ from app.storage import SQLiteStore
 
 
 class FakeAgent:
-    async def solve(self, history, toolbox, logger):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def solve(self, history, toolbox, logger, route=None):
+        self.calls += 1
         assert history[-1].content == "Which state?"
         await logger.log("fake_agent")
         return {"state": "Assam"}
@@ -69,3 +73,25 @@ async def test_duplicate_update_gets_no_second_reply(tmp_path) -> None:
     )
     assert first is not None
     assert second is None
+
+
+async def test_smalltalk_skips_model_and_returns_useful_answer(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.database_path, settings.session_ttl_seconds)
+    store.initialize()
+    agent = FakeAgent()
+    service = BotService(settings, store, agent)  # type: ignore[arg-type]
+
+    reply = await service.handle_message(
+        chat_id=8, user_id=9, text="hi", update_id=10
+    )
+
+    assert reply is not None
+    parsed = json.loads(reply)
+    assert parsed["answer"] == {"message": "Send a data-analysis question."}
+    assert agent.calls == 0
+
+    run_id = parsed["log_url"].rsplit("/", 1)[1].removesuffix(".jsonl")
+    log = await store.get_log_jsonl(run_id)
+    assert log is not None
+    assert '"event":"smalltalk_handled_without_model"' in log

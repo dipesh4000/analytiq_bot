@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections import Counter
 from typing import Any
 
 import duckdb
@@ -25,21 +26,30 @@ _BLOCKED_SQL = re.compile(
 
 
 class Toolbox:
-    def __init__(self, tavily_api_key: str, logger: RunLogger) -> None:
+    def __init__(
+        self,
+        tavily_api_key: str,
+        logger: RunLogger,
+        *,
+        allowed_tools: frozenset[str] | None = None,
+    ) -> None:
         self.tavily_api_key = tavily_api_key
         self.logger = logger
         self.tables: dict[str, pd.DataFrame] = {}
         self.sources: list[str] = []
+        self.allowed_tools = allowed_tools
+        self._cache: dict[str, dict[str, Any]] = {}
+        self._calls: Counter[str] = Counter()
 
     @staticmethod
-    def schemas() -> list[dict[str, Any]]:
-        return [
+    def schemas(allowed_tools: frozenset[str] | None = None) -> list[dict[str, Any]]:
+        schemas = [
             _tool(
                 "web_search",
                 "Search the public web for authoritative datasets or supporting sources.",
                 {
                     "query": {"type": "string"},
-                    "max_results": {"type": "integer", "minimum": 1, "maximum": 8},
+                    "max_results": {"type": "integer", "minimum": 1, "maximum": 5},
                 },
                 ["query"],
             ),
@@ -92,8 +102,40 @@ class Toolbox:
                 ["answer_json"],
             ),
         ]
+        if allowed_tools is None:
+            return schemas
+        return [
+            schema
+            for schema in schemas
+            if schema["function"]["name"] in allowed_tools
+        ]
 
     async def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self.allowed_tools is not None and name not in self.allowed_tools:
+            result = {"ok": False, "error": f"Tool {name} is not allowed for this route"}
+            await self.logger.log("tool_blocked", tool=name, error=result["error"])
+            return result
+
+        cache_key = json.dumps(
+            [name, arguments], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        if cache_key in self._cache:
+            await self.logger.log("tool_cache_hit", tool=name)
+            return self._cache[cache_key]
+
+        budgets = {
+            "web_search": 2,
+            "fetch_url": 4,
+            "load_inline_table": 2,
+            "query_table": 6,
+            "calculate": 4,
+        }
+        self._calls[name] += 1
+        if self._calls[name] > budgets.get(name, 1):
+            result = {"ok": False, "error": f"Tool call budget exceeded for {name}"}
+            await self.logger.log("tool_budget_exceeded", tool=name)
+            return result
+
         await self.logger.log("tool_started", tool=name, arguments=arguments)
         try:
             if name == "web_search":
@@ -122,7 +164,9 @@ class Toolbox:
             else:
                 raise ValueError(f"Unknown tool: {name}")
             await self.logger.log("tool_completed", tool=name, result=result)
-            return {"ok": True, **result}
+            response = {"ok": True, **result}
+            self._cache[cache_key] = response
+            return response
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             await self.logger.log("tool_failed", tool=name, error=error)
@@ -144,10 +188,10 @@ class Toolbox:
         self, frames: list[pd.DataFrame], *, source: str
     ) -> list[dict[str, Any]]:
         registered = []
-        for frame in frames[:8]:
+        for frame in frames[:6]:
             dataset_id = f"ds_{uuid.uuid4().hex[:10]}"
             self.tables[dataset_id] = frame
-            sample = frame.head(8).where(pd.notna(frame.head(8)), None)
+            sample = frame.head(3).where(pd.notna(frame.head(3)), None)
             registered.append(
                 {
                     "dataset_id": dataset_id,
@@ -172,7 +216,7 @@ class Toolbox:
             connection.execute("SET enable_external_access = false")
             connection.register("data", self.tables[dataset_id])
             result = connection.execute(
-                f"SELECT * FROM ({statement}) AS analytiq_result LIMIT 200"
+                f"SELECT * FROM ({statement}) AS analytiq_result LIMIT 50"
             ).fetchdf()
         finally:
             connection.close()

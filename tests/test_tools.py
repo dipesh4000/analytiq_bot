@@ -51,3 +51,19 @@ async def test_inline_table_and_read_only_sql(tmp_path) -> None:
 async def test_private_url_is_blocked() -> None:
     with pytest.raises(ValueError, match="unsafe"):
         await _validate_public_url("http://127.0.0.1/private")
+
+
+async def test_tool_allowlist_is_enforced(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "allowlist.db", session_ttl_seconds=900)
+    store.initialize()
+    toolbox = Toolbox(
+        "unused",
+        RunLogger(store, "c" * 32),
+        allowed_tools=frozenset({"calculate", "submit_answer"}),
+    )
+
+    names = {schema["function"]["name"] for schema in toolbox.schemas(toolbox.allowed_tools)}
+    assert names == {"calculate", "submit_answer"}
+    blocked = await toolbox.execute("web_search", {"query": "not sent"})
+    assert blocked["ok"] is False
+    assert "not allowed" in blocked["error"]
