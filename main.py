@@ -5,7 +5,7 @@ from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from dotenv import load_dotenv
-
+from app.agents import ai_chat
 
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_API_KEY")
@@ -39,7 +39,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Echo the user message."""
-    await update.message.reply_text(update.message.text)
+    Result = ai_chat(update.message.text)
+    await update.message.reply_text(Result)
 
 def main() -> None:
     """Start the bot."""
