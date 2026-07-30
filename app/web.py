@@ -51,6 +51,12 @@ def create_web_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/readyz")
     async def ready() -> dict[str, str]:
+        try:
+            await runtime.store.ping()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503, detail="Database is unavailable"
+            ) from exc
         return {"status": "ready"}
 
     @app.get("/logs/{run_id}.jsonl")

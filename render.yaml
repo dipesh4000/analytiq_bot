@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: analytiq-bot
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: BOT_MODE
+        value: webhook
+      - key: BOT_API_KEY
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: LLM_MODELS
+        value: openrouter/free
+      - key: SESSION_TTL_SECONDS
+        value: "900"
+      - key: MAX_AGENT_STEPS
+        value: "8"
+      - key: AGENT_TIMEOUT_SECONDS
+        value: "180"
+      - key: MAX_CONCURRENT_RUNS
+        value: "1"

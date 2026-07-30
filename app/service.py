@@ -8,7 +8,7 @@ from app.agent import DataAnalystAgent
 from app.config import Settings
 from app.contracts import ConversationMessage, FinalReply, JsonValue
 from app.routing import AnalysisRoute, route_message
-from app.storage import RunLogger, SQLiteStore
+from app.storage import RunLogger, Store
 from app.tools import Toolbox
 
 TELEGRAM_TEXT_LIMIT = 4_096
@@ -18,7 +18,7 @@ class BotService:
     def __init__(
         self,
         settings: Settings,
-        store: SQLiteStore,
+        store: Store,
         agent: DataAnalystAgent,
     ) -> None:
         self.settings = settings

@@ -6,9 +6,31 @@ import sqlite3
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from app.contracts import ConversationMessage, LogEvent
+
+
+class Store(Protocol):
+    def initialize(self) -> None: ...
+
+    async def ping(self) -> None: ...
+
+    def chat_lock(self, chat_id: int) -> asyncio.Lock: ...
+
+    async def claim_update(self, update_id: int) -> bool: ...
+
+    async def get_messages(self, chat_id: int) -> list[ConversationMessage]: ...
+
+    async def append_message(
+        self, chat_id: int, message: ConversationMessage, *, max_messages: int = 12
+    ) -> list[ConversationMessage]: ...
+
+    async def reset_session(self, chat_id: int) -> None: ...
+
+    async def append_log_event(self, event: LogEvent) -> None: ...
+
+    async def get_log_jsonl(self, run_id: str) -> str | None: ...
 
 
 class SQLiteStore:
@@ -52,6 +74,11 @@ class SQLiteStore:
 
     def chat_lock(self, chat_id: int) -> asyncio.Lock:
         return self._chat_locks[chat_id]
+
+    async def ping(self) -> None:
+        async with self._db_lock:
+            with self._connect() as connection:
+                connection.execute("SELECT 1").fetchone()
 
     async def claim_update(self, update_id: int) -> bool:
         async with self._db_lock:
@@ -140,7 +167,7 @@ class SQLiteStore:
 
 
 class RunLogger:
-    def __init__(self, store: SQLiteStore, run_id: str) -> None:
+    def __init__(self, store: Store, run_id: str) -> None:
         self.store = store
         self.run_id = run_id
         self.sequence = 0

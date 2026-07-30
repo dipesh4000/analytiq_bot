@@ -21,7 +21,8 @@ The `answer` value follows the shape requested in the latest Telegram message. T
 - CSV, TSV, JSON, Excel, HTML-table, and text-PDF extraction
 - Safe arithmetic/statistics and read-only DuckDB queries
 - Exact top-level JSON validation and serialization
-- Persistent SQLite sessions, Telegram update deduplication, and JSONL logs
+- SQLite locally or Supabase PostgreSQL in production
+- Persistent sessions, Telegram update deduplication, and JSONL logs
 - Public log, liveness, and readiness HTTP routes
 - Docker and Railway deployment configuration
 
@@ -93,7 +94,53 @@ TELEGRAM_WEBHOOK_SECRET=<random letters, numbers, underscores, or dashes>
 
 Polling is intended only for local development. Local log URLs are not public.
 
-## Production webhook deployment
+## Render + Supabase production deployment
+
+The repository includes `render.yaml` and a Dockerfile. Production uses Supabase
+PostgreSQL because Render Free has an ephemeral filesystem.
+
+1. In Supabase, open the project and click **Connect**.
+2. Select **Session pooler** and copy the port `5432` connection string. Replace its
+   password placeholder with the database password. If the password contains reserved
+   URL characters, URL-encode it.
+3. Push this repository to its public GitHub repository.
+4. In Render, choose **New > Blueprint**, connect the repository, and select
+   `render.yaml`.
+5. Enter the prompted secret values:
+
+```dotenv
+BOT_API_KEY=<BotFather token>
+OPENROUTER_API_KEY=<OpenRouter key>
+TAVILY_API_KEY=<Tavily key>
+TELEGRAM_WEBHOOK_SECRET=<letters-digits-underscore-dash only>
+DATABASE_URL=postgresql://postgres.<project-ref>:<encoded-password>@<region>.pooler.supabase.com:5432/postgres
+```
+
+Render supplies `RENDER_EXTERNAL_URL`, so `PUBLIC_BASE_URL` is discovered automatically.
+The application creates its three PostgreSQL tables on startup. `render.yaml` selects
+webhook mode, the free model router, one concurrent analysis, Singapore, and `/healthz`
+as the health check.
+
+6. After the deploy is live, open:
+
+```text
+https://<your-render-service>.onrender.com/healthz
+https://<your-render-service>.onrender.com/readyz
+```
+
+7. Verify Telegram from your private terminal:
+
+```bash
+curl -fsS "https://api.telegram.org/bot${BOT_API_KEY}/getWebhookInfo"
+```
+
+The returned webhook URL should start with the Render URL and its status should not
+contain `last_error_message`.
+
+8. Send the bot a data-analysis question. Copy `log_url` from its JSON reply and confirm
+that it downloads publicly.
+
+### Railway alternative
 
 The repository includes a `Dockerfile` and `railway.toml`.
 

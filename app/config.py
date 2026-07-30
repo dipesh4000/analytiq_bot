@@ -38,6 +38,7 @@ class Settings:
     agent_timeout_seconds: int
     max_concurrent_runs: int
     port: int
+    database_url: str = ""
 
     @property
     def database_path(self) -> Path:
@@ -81,7 +82,19 @@ class Settings:
         mode = os.getenv("BOT_MODE", "polling").strip().lower()
         if mode not in {"polling", "webhook"}:
             raise ConfigError("BOT_MODE must be polling or webhook")
-        public_base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+        public_base_url = (
+            os.getenv("PUBLIC_BASE_URL")
+            or os.getenv("RENDER_EXTERNAL_URL")
+            or "http://localhost:8000"
+        ).rstrip("/")
+        database_url = os.getenv("DATABASE_URL", "").strip()
+        if database_url:
+            if not database_url.startswith(("postgresql://", "postgres://")):
+                raise ConfigError("DATABASE_URL must be a PostgreSQL connection string")
+            if "[YOUR-PASSWORD]" in database_url:
+                raise ConfigError(
+                    "Replace [YOUR-PASSWORD] in DATABASE_URL with the real database password"
+                )
         webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "development-secret").strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", webhook_secret):
             raise ConfigError(
@@ -104,4 +117,5 @@ class Settings:
             agent_timeout_seconds=_positive_int("AGENT_TIMEOUT_SECONDS", 180),
             max_concurrent_runs=_positive_int("MAX_CONCURRENT_RUNS", 3),
             port=_positive_int("PORT", 8000),
+            database_url=database_url,
         )
