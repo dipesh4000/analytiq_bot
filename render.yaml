@@ -7,7 +7,6 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     autoDeployTrigger: commit
-    maxShutdownDelaySeconds: 120
     envVars:
       - key: BOT_MODE
         value: webhook
